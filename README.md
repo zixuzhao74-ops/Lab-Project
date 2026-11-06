@@ -22,33 +22,49 @@ EEG analysis is not implemented yet.
 ## Repository structure
 
 ```
-Lab-Project/
-├── README.md
-├── .gitignore
+Lab Data Collection/
 ├── Participants/                      # data storage (one folder per participant)
 │   └── Pilot_1/
 │       ├── TEST_1_Hummingbird_*.csv   # trial-level behavioral data
 │       ├── TEST_1_allstim.csv         # stimulus ResMem / FalseResMem scores
 │       ├── TEST.eeg / .vhdr / .vmrk   # raw EEG (BrainVision)
 │       └── TEST_1_*.EDF               # raw EEG (EDF)
-└── data_analysis/                     # data analysis
-    ├── setup.py                       # makes the package installable
-    ├── run_notebook.ipynb             # imports the package and runs the analysis
-    └── memorability_analysis_behavioral/   # the package
-        ├── __init__.py
-        ├── load.py
-        ├── filter.py
-        ├── data_preprocess.py
-        ├── data_visualization.py
-        └── statistical_models/
-            ├── __init__.py
-            └── logistic_regression.py
+├── data_analysis/                     # data analysis (installable package)
+│   ├── setup.py                       # makes the package installable
+│   └── memorability_analysis_behavioral/   # the package
+│       ├── __init__.py
+│       ├── load.py
+│       ├── filter.py
+│       ├── data_preprocess.py
+│       ├── data_visualization.py
+│       └── statistical_models/
+│           ├── __init__.py
+│           └── logistic_regression.py
+├── Notebook/
+│   └── run_notebook.ipynb             # imports the package and runs the analysis
+├── analyze_resmem_recognition.m       # original MATLAB analysis (translated to Python)
+├── recognition_resmem_quartiles.png   # output figure
+└── Lab-Project/                       # git repository (pushed to GitHub)
+    ├── README.md
+    ├── .gitignore
+    ├── data_analysis/                 # copy of the package above
+    │   ├── setup.py
+    │   └── memorability_analysis_behavioral/
+    └── Lab Project Code/              # experiment and stimulus scripts
+        ├── Hummingbird_balance.py
+        ├── Hummingbird_balance_feedback.py
+        ├── SWAN4_4_Tentative.py
+        ├── SWAN4_4_Tentative2.py
+        ├── Filter_humans.ipynb
+        └── Indoor_outdoor.ipynb
 ```
+
+Raw participant data stays outside the repository because the EEG files are too large for GitHub.
 
 ## Installation
 
 ```bash
-cd data_analysis
+cd "Lab Data Collection/data_analysis"
 pip install -e .
 ```
 
@@ -56,7 +72,7 @@ Requires Python 3 with `pandas`, `numpy`, `statsmodels` and `matplotlib`.
 
 ## Usage
 
-Open `data_analysis/run_notebook.ipynb`, set the paths to a participant's CSV files, and run all cells:
+Open `Notebook/run_notebook.ipynb`, set the paths to a participant's CSV files, and run all cells:
 
 ```python
 from memorability_analysis_behavioral import load as ld
