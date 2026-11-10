@@ -92,7 +92,7 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
 
     Shows the fitted curve with an approximate 95% confidence band, the observed
     accuracy in equal-count ResMem bins (95% Wilson intervals), the ResMem
-    distribution of the old images (rug), a chance line, and the ResMem effect
+    raw correct (top) and incorrect (bottom) trials as a rug, and the ResMem effect
     (OR, 95% CI, p). The wide 95% predictive interval (a new subject x image
     pair) is optional (show_predictive=True).
     """
@@ -169,9 +169,15 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
             label="Population-averaged prediction")
     ax.errorbar(obs["x"], obs_p, yerr=obs_err, fmt="o", color="black",
                 capsize=3, ms=5, label=f"Observed ({len(obs)} bins, 95% CI)")
-    ax.axhline(0.5, color="gray", ls="--", lw=1, label="Chance (0.5)")
-    ax.vlines(D["oldResMem"], ylim[0], ylim[0] + 0.03 * (ylim[1] - ylim[0]),
-              color="gray", alpha=0.25, lw=0.8) # rug: old-image ResMem
+    # Two-sided rug of the raw binary outcomes: ticks at the top = correct
+    # trials, ticks at the bottom = incorrect trials, placed at their ResMem
+    h = 0.03 * (ylim[1] - ylim[0])
+    ax.vlines(D.loc[D["correct"] == 1, "oldResMem"], ylim[1] - h, ylim[1],
+              color="gray", alpha=0.25, lw=0.8,
+              label="Correct trials (top ticks)")
+    ax.vlines(D.loc[D["correct"] == 0, "oldResMem"], ylim[0], ylim[0] + h,
+              color="gray", alpha=0.25, lw=0.8,
+              label="Incorrect trials (bottom ticks)")
 
     ax.set(xlabel="Old-image ResMem",
            ylabel="Probability of correct recognition",
@@ -181,11 +187,6 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
 
     ax.grid(alpha=0.2)
     ax.legend(frameon=False, loc="lower right", fontsize=9)
-    fig.text(0.01, -0.02,
-             f"N = {D['ID'].nunique()} participants, {len(D)} trials. "
-             "Foil FalseResMem and block held at their means; scene category averaged. "
-             "Points are pooled trials.",
-             fontsize=8, ha="left", va="top")
     fig.tight_layout()
     fig.savefig(filename, dpi=300, bbox_inches="tight")
     plt.show()
