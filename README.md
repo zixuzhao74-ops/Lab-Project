@@ -52,6 +52,24 @@ Both figures are made in `data_visualization.py` from the preprocessed trial dat
    - Black points: observed accuracy in equal-count ResMem bins with 95% intervals. Gray ticks along the bottom (rug): ResMem values of the old images. Dashed line: chance (0.5).
    - Text box: effect of ResMem as log-odds (β), odds ratio per 0.1 ResMem, 95% CI and p. The foil FalseResMem and block are held at their means, and scene category is averaged.
 
+### How `plot_resmem_glmm` creates the GLMM figure
+
+```python
+fig, ax = dv.plot_resmem_glmm(result, D, filename="ResMem_Recognition_GLMM.png")
+```
+
+**Inputs:** `result` is the fitted GLMM and `D` is the trial-level data, both returned by `GLLM.fit_recognition_glmm()`. Optional arguments: `n_samples` (fixed-effect draws, default 1000), `n_random` (random-effect draws, default 1000), `n_bins` (observed-data bins, default 8), `show_predictive` (draw the predictive interval, default `False`), `ylim`, and `seed`.
+
+**Steps:**
+
+1. **Prediction grid.** Build 160 evenly spaced old-image ResMem values from the minimum to the maximum in `D`, and convert them to the model's units (centered, per 0.1 ResMem).
+2. **Fixed-effect uncertainty.** Draw 1,000 sets of fixed effects (intercept and ResMem slope) from a multivariate normal using the model's estimates and covariance matrix. Each draw gives one logit curve across the grid, with foil FalseResMem, block and scene category held at their average value.
+3. **Random effects.** Read the estimated standard deviations for subject (intercept and ResMem slope, with their correlation), old image and new image. Draw one shared set of random effects from them.
+4. **Population-averaged curve.** For each fixed-effect draw, add the random effects, apply the inverse logit to get probabilities, and average over the random-effect draws. The mean across fixed-effect draws is the solid line, and the 2.5th–97.5th percentiles form the approximate 95% confidence band. The optional predictive interval is the same calculation for a single subject and image pair, without averaging.
+5. **Observed data.** Split the trials into 8 equal-count ResMem bins and compute the proportion correct in each, with a 95% Wilson interval (black points).
+6. **Effect text.** Take the ResMem coefficient from the model and report β, the odds ratio per 0.1 ResMem, its 95% CI and the p-value.
+7. **Draw and save.** Plot the band, curve, observed points, chance line, ResMem rug, effect text and a note with N participants and trials. Save the figure at 300 dpi to `filename` and return `(fig, ax)`.
+
 ## Repository structure
 
 ```

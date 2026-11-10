@@ -16,7 +16,8 @@ RESMEM_SCALE = 0.1
 
 
 def visualize_accuracy_by_quartile(D: pd.DataFrame, folder: Path):
-    """Recognition accuracy by quartile of old-image ResMem.
+    """
+    Recognition accuracy by quartile of old-image ResMem.
     """
     D["quartile"] = pd.qcut(D["oldResMem"], q=4, labels=[1, 2, 3, 4])
     quartile_summary = (
@@ -45,7 +46,9 @@ def visualize_accuracy_by_quartile(D: pd.DataFrame, folder: Path):
 
 
 def _ranef_sd(result, group, term="(Intercept)"):
-    """Look up a random-effect SD from pymer4's ranef_var table."""
+    """
+    Look up a random-effect SD from pymer4's ranef_var table.
+    """
     rv = result.ranef_var.reset_index()
     rv = rv.rename(columns={rv.columns[0]: "group"})
     row = rv[(rv["group"] == group) & (rv["Name"] == term)]
@@ -53,7 +56,9 @@ def _ranef_sd(result, group, term="(Intercept)"):
 
 
 def _ranef_corr(result, group="subject"):
-    """Intercept-slope correlation for a group (0 if not estimated)."""
+    """
+    Intercept-slope correlation for a group (0 if not estimated).
+    """
     rc = getattr(result, "ranef_corr", None)
     if rc is None or len(rc) == 0:
         return 0.0
@@ -64,7 +69,10 @@ def _ranef_corr(result, group="subject"):
 
 
 def _fixef_draws(result, n_samples, rng):
-    """Draw fixed effects jointly from N(estimate, vcov); fall back to independent SEs."""
+    """
+    Draw fixed effects jointly from N(estimate, vcov); fall back to 
+    independent SEs.
+    """
     est = result.coefs["Estimate"]
     try:
         from rpy2.robjects import r
@@ -79,7 +87,8 @@ def _fixef_draws(result, n_samples, rng):
 def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
                      n_samples=1000, n_random=1000, seed=42,
                      n_bins=8, show_predictive=False, ylim=(0, 1)):
-    """Plot marginal (population-averaged) GLMM predictions of recognition accuracy.
+    """Plot marginal (population-averaged) GLMM predictions of recognition 
+    accuracy.
 
     Shows the fitted curve with an approximate 95% confidence band, the observed
     accuracy in equal-count ResMem bins (95% Wilson intervals), the ResMem
@@ -99,7 +108,7 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
     b0 = fe["(Intercept)"].to_numpy()
     b1 = fe["oldResMem_c"].to_numpy()
     # foil FalseResMem, category, block held at their centered value (0)
-    eta_fixed = b0[:, None] + b1[:, None] * x_c[None, :]      # (n_samples, 160)
+    eta_fixed = b0[:, None] + b1[:, None] * x_c[None, :] # (n_samples, 160)
 
     # Random-effect SDs (lme4 gives point estimates only)
     sd_subj = _ranef_sd(result, "subject", "(Intercept)")
@@ -112,13 +121,13 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
     # jointly, plus old/new image intercepts). Reusing it for every
     # fixed-effect draw keeps the band smooth: it varies only with the
     # fixed-effect uncertainty, not with Monte Carlo noise.
-    cov = np.array([[sd_subj**2,              rho * sd_subj * sd_slope],
+    cov = np.array([[sd_subj**2, rho * sd_subj * sd_slope],
                     [rho * sd_subj * sd_slope, sd_slope**2]])
     z = rng.multivariate_normal([0, 0], cov, size=n_random)
     subj, slope = z[:, 0:1], z[:, 1:2]
     old_img = rng.normal(size=(n_random, 1)) * sd_old
     new_img = rng.normal(size=(n_random, 1)) * sd_new
-    R = subj + old_img + new_img + slope * x_c[None, :]       # (n_random, 160)
+    R = subj + old_img + new_img + slope * x_c[None, :] # (n_random, 160)
 
     # Population-averaged (marginal) probability for each fixed-effect draw
     marginal_samples = np.empty((n_samples, x.size))
@@ -162,7 +171,7 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
                 capsize=3, ms=5, label=f"Observed ({len(obs)} bins, 95% CI)")
     ax.axhline(0.5, color="gray", ls="--", lw=1, label="Chance (0.5)")
     ax.vlines(D["oldResMem"], ylim[0], ylim[0] + 0.03 * (ylim[1] - ylim[0]),
-              color="gray", alpha=0.25, lw=0.8)                # rug: old-image ResMem
+              color="gray", alpha=0.25, lw=0.8) # rug: old-image ResMem
 
     ax.set(xlabel="Old-image ResMem",
            ylabel="Probability of correct recognition",
@@ -185,7 +194,8 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
 
 
 def save_analysis_outputs(D: pd.DataFrame, quartile_summary: pd.DataFrame, folder: Path):
-    """10. Save the cleaned, matched trial-level dataset.
+    """
+    10. Save the cleaned, matched trial-level dataset.
     """
     D.to_csv(folder / "recognition_resmem_merged.csv", index=False)
     quartile_summary.to_csv(folder / "recognition_resmem_quartiles.csv", index=False)
