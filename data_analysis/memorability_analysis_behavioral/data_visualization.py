@@ -9,6 +9,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 from scipy.special import expit
+from statsmodels.stats.proportion import proportion_confint
+
+# ResMem units per model unit: oldResMem_c = (oldResMem - mean) / 0.1 (see GLLM.py)
+RESMEM_SCALE = 0.1
 
 
 def visualize_accuracy_by_quartile(D: pd.DataFrame, folder: Path):
@@ -73,21 +77,29 @@ def _fixef_draws(result, n_samples, rng):
 
 
 def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
-                     n_samples=1200, n_random=40, seed=42):
-    """Plot marginal GLMM predictions with fixed-effect and random-effect uncertainty."""
+                     n_samples=1000, n_random=1000, seed=42,
+                     n_bins=8, show_predictive=False, ylim=(0, 1)):
+    """Plot marginal (population-averaged) GLMM predictions of recognition accuracy.
+
+    Shows the fitted curve with an approximate 95% confidence band, the observed
+    accuracy in equal-count ResMem bins (95% Wilson intervals), the ResMem
+    distribution of the old images (rug), a chance line, and the ResMem effect
+    (OR, 95% CI, p). The wide 95% predictive interval (a new subject x image
+    pair) is optional (show_predictive=True).
+    """
 
     rng = np.random.default_rng(seed)
 
     # ResMem grid on the original scale, converted to model units
     x = np.linspace(D["oldResMem"].min(), D["oldResMem"].max(), 160)
-    x_c = (x - D["oldResMem"].mean()) / 0.1
+    x_c = (x - D["oldResMem"].mean()) / RESMEM_SCALE
 
     # Fixed effects: sampled jointly from their sampling distribution
     fe = _fixef_draws(result, n_samples, rng)
     b0 = fe["(Intercept)"].to_numpy()
     b1 = fe["oldResMem_c"].to_numpy()
     # foil FalseResMem, category, block held at their centered value (0)
-    eta_fixed = b0[:, None] + b1[:, None] * x_c[None, :]
+    eta_fixed = b0[:, None] + b1[:, None] * x_c[None, :]      # (n_samples, 160)
 
     # Random-effect SDs (lme4 gives point estimates only)
     sd_subj = _ranef_sd(result, "subject", "(Intercept)")
@@ -96,48 +108,75 @@ def plot_resmem_glmm(result, D, filename="ResMem_GLMM.png",
     sd_new = _ranef_sd(result, "NEWITEM")
     rho = _ranef_corr(result, "subject")
 
-    # Subject intercept + slope, drawn jointly (keeps their correlation)
+    # One shared set of random-effect draws (subject intercept + slope drawn
+    # jointly, plus old/new image intercepts). Reusing it for every
+    # fixed-effect draw keeps the band smooth: it varies only with the
+    # fixed-effect uncertainty, not with Monte Carlo noise.
     cov = np.array([[sd_subj**2,              rho * sd_subj * sd_slope],
                     [rho * sd_subj * sd_slope, sd_slope**2]])
-    z = rng.multivariate_normal([0, 0], cov, size=(n_samples, n_random))
-    subj, slope = z[..., 0:1], z[..., 1:2]
-
-    shape = (n_samples, n_random, 1)
-    old_img = rng.normal(size=shape) * sd_old
-    new_img = rng.normal(size=shape) * sd_new
-
-    # Linear predictor: fixed + random intercepts + random slope
-    eta = (eta_fixed[:, None, :] + subj + old_img + new_img
-           + slope * x_c[None, None, :])
+    z = rng.multivariate_normal([0, 0], cov, size=n_random)
+    subj, slope = z[:, 0:1], z[:, 1:2]
+    old_img = rng.normal(size=(n_random, 1)) * sd_old
+    new_img = rng.normal(size=(n_random, 1)) * sd_new
+    R = subj + old_img + new_img + slope * x_c[None, :]       # (n_random, 160)
 
     # Population-averaged (marginal) probability for each fixed-effect draw
-    marginal_samples = expit(eta).mean(axis=1)
+    marginal_samples = np.empty((n_samples, x.size))
+    for s in range(n_samples):
+        marginal_samples[s] = expit(eta_fixed[s][None, :] + R).mean(axis=0)
     predicted = marginal_samples.mean(axis=0)
     lower, upper = np.percentile(marginal_samples, [2.5, 97.5], axis=0)
 
     # Interval for a new subject x image combination
-    individual = expit(eta[:, 0, :])
+    individual = expit(eta_fixed + R[np.arange(n_samples) % n_random])
     pred_low, pred_high = np.percentile(individual, [2.5, 97.5], axis=0)
+
+    # Observed accuracy in equal-count ResMem bins (trials pooled across subjects)
+    bins = pd.qcut(D["oldResMem"], q=n_bins, duplicates="drop")
+    obs = D.groupby(bins, observed=True).agg(
+        x=("oldResMem", "mean"), k=("correct", "sum"), n=("correct", "size"))
+    obs_p = (obs["k"] / obs["n"]).to_numpy()
+    obs_lo, obs_hi = proportion_confint(obs["k"], obs["n"],
+                                        alpha=0.05, method="wilson")
+    obs_err = [obs_p - np.asarray(obs_lo), np.asarray(obs_hi) - obs_p]
+
+    # Effect of ResMem (log-odds scale -> odds ratio per 0.1 ResMem)
+    est = result.coefs.loc["oldResMem_c", "Estimate"]
+    se = result.coefs.loc["oldResMem_c", "SE"]
+    p_val = result.coefs.loc["oldResMem_c", "P-val"]
+    p_txt = "p < .001" if p_val < 0.001 else f"p = {p_val:.3f}"
+    effect_txt = (f"β = {est:.3f}, OR = {np.exp(est):.2f} per 0.1 ResMem\n"
+                  f"95% CI [{np.exp(est - 1.96 * se):.2f}, "
+                  f"{np.exp(est + 1.96 * se):.2f}], {p_txt}")
 
     # Plot
     fig, ax = plt.subplots(figsize=(8, 5.5))
-    ax.fill_between(x, pred_low, pred_high, color="#2457A7",
-                    alpha=0.10, label="95% predictive interval")
+    if show_predictive:
+        ax.fill_between(x, pred_low, pred_high, color="#2457A7",
+                        alpha=0.10, label="95% predictive interval")
     ax.fill_between(x, lower, upper, color="#2457A7",
                     alpha=0.25, label="Approx. 95% confidence interval")
     ax.plot(x, predicted, color="#2457A7", lw=2.5,
             label="Population-averaged prediction")
+    ax.errorbar(obs["x"], obs_p, yerr=obs_err, fmt="o", color="black",
+                capsize=3, ms=5, label=f"Observed ({len(obs)} bins, 95% CI)")
+    ax.axhline(0.5, color="gray", ls="--", lw=1, label="Chance (0.5)")
+    ax.vlines(D["oldResMem"], ylim[0], ylim[0] + 0.03 * (ylim[1] - ylim[0]),
+              color="gray", alpha=0.25, lw=0.8)                # rug: old-image ResMem
 
-    beta = result.coefs.loc["oldResMem_c", "Estimate"]
     ax.set(xlabel="Old-image ResMem",
-           ylabel="Predicted recognition accuracy",
+           ylabel="Probability of correct recognition",
            title="ResMem and Recognition Performance",
-           ylim=(0, 1))
-    ax.text(0.04, 0.05, f"β = {beta:.3f} (per 0.1 ResMem), OR = {np.exp(beta):.2f}",
-            transform=ax.transAxes, fontsize=11)
+           ylim=ylim)
+    ax.text(0.04, 0.12, effect_txt, transform=ax.transAxes, fontsize=11)
 
     ax.grid(alpha=0.2)
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, loc="lower right", fontsize=9)
+    fig.text(0.01, -0.02,
+             f"N = {D['ID'].nunique()} participants, {len(D)} trials. "
+             "Foil FalseResMem and block held at their means; scene category averaged. "
+             "Points are pooled trials.",
+             fontsize=8, ha="left", va="top")
     fig.tight_layout()
     fig.savefig(filename, dpi=300, bbox_inches="tight")
     plt.show()
