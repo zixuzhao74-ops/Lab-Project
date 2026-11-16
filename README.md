@@ -49,7 +49,8 @@ Both figures are made in `data_visualization.py` from the preprocessed trial dat
 2. **GLMM prediction plot** (`ResMem_Recognition_GLMM.png`). Uses all participants and the fitted binomial GLMM.
    - x-axis: old-image ResMem score. y-axis: probability of a correct response.
    - Solid line: population-averaged model prediction. Dark band: approximate 95% confidence interval. Optional light band: 95% predictive interval for a new participant and image pair.
-   - Black points: observed accuracy in equal-count ResMem bins with 95% intervals. Gray ticks along the bottom (rug): ResMem values of the old images. Dashed line: chance (0.5).
+   - Black points: observed accuracy in equal-count ResMem bins with 95% intervals.
+   - Gray ticks (rug), labeled in the legend: each tick is one raw trial placed at its old image's ResMem score. Ticks along the top ("Correct trials") are correct responses (y = 1), and ticks along the bottom ("Incorrect trials") are incorrect responses (y = 0). Where the top ticks are denser than the bottom ticks, accuracy is higher, which is what the fitted curve summarizes.
    - Text box: effect of ResMem as log-odds (β), odds ratio per 0.1 ResMem, 95% CI and p. The foil FalseResMem and block are held at their means, and scene category is averaged.
 
 ### How `plot_resmem_glmm` creates the GLMM figure
@@ -68,7 +69,7 @@ fig, ax = dv.plot_resmem_glmm(result, D, filename="ResMem_Recognition_GLMM.png")
 4. **Population-averaged curve.** For each fixed-effect draw, add the random effects, apply the inverse logit to get probabilities, and average over the random-effect draws. The mean across fixed-effect draws is the solid line, and the 2.5th–97.5th percentiles form the approximate 95% confidence band. The optional predictive interval is the same calculation for a single subject and image pair, without averaging.
 5. **Observed data.** Split the trials into 8 equal-count ResMem bins and compute the proportion correct in each, with a 95% Wilson interval (black points).
 6. **Effect text.** Take the ResMem coefficient from the model and report β, the odds ratio per 0.1 ResMem, its 95% CI and the p-value.
-7. **Draw and save.** Plot the band, curve, observed points, chance line, ResMem rug, effect text and a note with N participants and trials. Save the figure at 300 dpi to `filename` and return `(fig, ax)`.
+7. **Draw and save.** Plot the band, curve, observed points, the correct/incorrect rug and the effect text. Save the figure at 300 dpi to `filename` and return `(fig, ax)`.
 
 ## Repository structure
 
