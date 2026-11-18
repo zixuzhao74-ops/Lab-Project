@@ -5,6 +5,8 @@ Pipeline for a recognition-memory experiment (EEG, eye tracking and behavior). T
 - **recognition accuracy** (behavioral): first for a single participant (logistic regression), then across participants (binomial mixed-effects model, GLMM);
 - **neural prioritization during categorization** (EEG): whether old-image ResMem predicts the r-CDA (primary question), and whether old-image ResMem predicts the FN400 more strongly than new-image ResMem (secondary question), with linear mixed-effects models (LMM).
 
+A power analysis estimates how many participants the neural questions need, from the trial-level noise observed in the pilot participants.
+
 ## Data source
 
 **Stimuli.** Scene images come from the Konkle et al. scene set (`Places_Konkle_Sample300`: 201 scene categories with 300 images each, from the Places/SUN databases). Images containing people were removed with an OpenCLIP (RN50) filter (`Lab Project Code/Filter_humans.ipynb`), and scenes were labeled indoor/outdoor (`Lab Project Code/Indoor_outdoor.ipynb`).
@@ -34,6 +36,7 @@ Pipeline for a recognition-memory experiment (EEG, eye tracking and behavior). T
 6. **Preprocess** (`data_preprocess.py`).
 7. **Analyze** (`statistical_models/`).
 8. **Visualize** (`data_visualization.py`).
+9. **Plan sample size** (`memorability_analysis_power/power_simulation.py`), using the neural trial data from step 7.
 
 ## What each module does
 
@@ -69,6 +72,22 @@ Pipeline for a recognition-memory experiment (EEG, eye tracking and behavior). T
 | Positive control | `rcda ~ OldResMem + NewFalseResMem + OldCategory + Block + random effects` (recognition) |
 | Robustness | Primary model with the preprint's full window, PO7/PO8 250–800 ms (`rcda_PO_250_800`) |
 
+### Power analysis (`memorability_analysis_power/`)
+
+| Module | Input | What it does | Output |
+|---|---|---|---|
+| `power_simulation.py` | Categorization trials (`cat` from `LMM.build_dataset()`) and a fitted neural model | `residual_sd()` reads the trial-level noise (µV) from a fitted LMM. `trials_per_participant()` counts clean, correct trials per participant. `analytic_sample_size()` gives the participants needed for 80% power from a normal approximation. `simulate_power()` simulates participants from the observed old-image ResMem values (centered within category) and noise, fits each participant's ResMem slope and tests the average slope against 0 (a fast two-stage stand-in for the mixed model). `plot_power_curve()` plots power against sample size | Required N, a table of power by N, and `Power_curve.png` |
+
+**Assumptions.** The pilot data give the trial-level noise, trial counts and ResMem values. The effect size (smallest effect of interest, in µV per 0.1 ResMem) and the between-participant SD of the ResMem slope (`tau_slope`, default 0.05 µV) cannot be estimated from two participants and are set by the user. `item_sd` adds image-level variability; because every participant sees the same image pool, large image variability limits power no matter how many participants are added.
+
+**Pilot estimate (Q54, Q55).** About 568 clean, correct categorization trials per participant; residual SD about 7.3 µV for the primary r-CDA, 6.1 µV for the PO7/PO8 250–800 ms window and 6.7 µV for the FN400. Approximate participants needed for 80% power (analytic):
+
+| ResMem effect (µV per 0.1 ResMem) | r-CDA, residual SD 7.3 µV | r-CDA, residual SD 6.1 µV |
+|---|---|---|
+| 0.10 | ≈ 78 | ≈ 57 |
+| 0.15 | ≈ 36 | ≈ 27 |
+| 0.20 | ≈ 21 | ≈ 16 |
+
 ## Figures
 
 Both behavioral figures are made in `memorability_analysis_behavioral/data_visualization.py` from the preprocessed trial data (`oldResMem`, `correct`) and are saved by the notebook.
@@ -89,6 +108,10 @@ Both neural figures are made in `memorability_analysis_neural/data_visualization
 4. **Secondary question** (`Fig2_secondary_FN400.png`).
    - Panel A: grand-average frontal ERP (Fz/F3/F4) for the lowest and highest thirds of old-image ResMem. This split is descriptive only; the model uses continuous ResMem. The gray area is the FN400 window (250–500 ms).
    - Panel B: model-predicted FN400 across old-image ResMem and across new-image ResMem (two lines, 95% CI bands), with observed bin means. Text: old slope, new slope and the old − new contrast (b, 95% CI, p).
+
+The power figure is made in `memorability_analysis_power/power_simulation.py`.
+
+5. **Power curve** (`Power_curve.png`). x-axis: number of participants; y-axis: simulated power (α = .05, two-sided). One line per scenario (e.g., r-CDA window or effect size); the dashed line marks 80% power.
 
 ### How `plot_resmem_glmm` creates the GLMM figure
 
@@ -133,15 +156,18 @@ Lab Data Collection/
 │   │       ├── __init__.py
 │   │       ├── logistic_regression.py # single-participant logistic models
 │   │       └── GLLM.py                # multi-participant binomial GLMM
-│   └── memorability_analysis_neural/       # neural (EEG) package
+│   ├── memorability_analysis_neural/       # neural (EEG) package
+│   │   ├── __init__.py
+│   │   ├── load.py
+│   │   ├── filter.py
+│   │   ├── data_preprocess.py
+│   │   ├── data_visualization.py
+│   │   └── statistical_models/
+│   │       ├── __init__.py
+│   │       └── LMM.py                 # r-CDA and FN400 linear mixed models
+│   └── memorability_analysis_power/        # sample-size planning
 │       ├── __init__.py
-│       ├── load.py
-│       ├── filter.py
-│       ├── data_preprocess.py
-│       ├── data_visualization.py
-│       └── statistical_models/
-│           ├── __init__.py
-│           └── LMM.py                 # r-CDA and FN400 linear mixed models
+│       └── power_simulation.py        # analytic and simulated power for the ResMem slope
 ├── Notebook/
 │   ├── run_notebook.ipynb             # imports the package, runs both analyses
 │   ├── run_memorability.ipynb         # additional notebook
@@ -219,6 +245,26 @@ fig1, _ = ndv.plot_primary_rcda(models, cat, times, filename="Fig1_primary_rCDA.
 fig2, _ = ndv.plot_secondary_fn400(models, cat, times, filename="Fig2_secondary_FN400.png")
 ```
 
+Cell 4 runs the power analysis (after Cell 3, which provides `cat` and `models`):
+
+```python
+from memorability_analysis_power import power_simulation as pw
+
+n_trials = pw.trials_per_participant(cat)
+sigma_primary = pw.residual_sd(models["primary_rcda"])
+sigma_robust = pw.residual_sd(models["robust_rcda_PO_250_800"])
+
+for effect in [0.10, 0.15, 0.20]:
+    print(f"Effect {effect}: N = {pw.analytic_sample_size(sigma_primary, effect, n_trials)} (primary), "
+          f"{pw.analytic_sample_size(sigma_robust, effect, n_trials)} (PO7/PO8 250-800 ms)")
+
+power_primary = pw.simulate_power(cat, sigma=sigma_primary, effect=0.15)
+power_robust = pw.simulate_power(cat, sigma=sigma_robust, effect=0.15)
+fig, ax = pw.plot_power_curve({"Primary r-CDA": power_primary,
+                               "r-CDA, PO7/PO8 250-800 ms": power_robust},
+                              filename="Power_curve.png")
+```
+
 ## Notes
 
 - Large raw EEG and eye-tracking files (`*.eeg`, `*.EDF`) exceed GitHub's file size limit and cannot be committed.
@@ -226,4 +272,5 @@ fig2, _ = ndv.plot_secondary_fn400(models, cat, times, filename="Fig2_secondary_
 - The neural pipeline matches epochs to trials through the BrainVision marker number (`bvmknum`) kept in `checked.set`, and stops with an error if the number of onset markers in the `.vmrk` (640 per phase in Q54 and Q55) does not equal the number of behavioral trials.
 - Q54 has two behavioral CSVs with the same number of rows (`..._284.csv` and `..._284_1.csv`); the usage example uses the first one. Confirm they are identical.
 - With fewer than five participants, subject random effects cannot be estimated reliably; treat neural model fits as a pipeline check. If a model does not converge, use `random_slope=False`.
+- `simulate_power()` with the default `n_sims=1000` and six sample sizes takes a few minutes; use `n_sims=200` for a quick check.
 - The raw EEG includes a photodiode channel (`StimTrak`) that can be used to check the delay between trigger and screen onset.
