@@ -57,8 +57,10 @@ def select_main_trials(raw: pd.DataFrame, phase: str):
     if not trials["old_side"].isin(["LEFT", "RIGHT"]).all():
         raise ValueError(f"Unexpected old-image side values in {phase} trials.")
 
-    trials["correct"] = (response.astype("string").str.strip().str.upper()
-                         .eq("CORRECT").fillna(False).astype(bool))
+    answer = response.astype("string").str.strip().str.upper()
+    trials["correct"] = answer.eq("CORRECT").fillna(False).astype(bool)
+    # Timeouts ("NO ANSWER") are neither correct nor errors
+    trials["answered"] = answer.isin(["CORRECT", "INCORRECT"]).fillna(False).astype(bool)
     # Presentation order = order of the onset markers in the EEG recording
     trials["ordinal"] = np.arange(len(trials))
     print(f"Main {phase} trials: {len(trials)}")
@@ -99,7 +101,7 @@ def match_stimulus_scores(trials: pd.DataFrame, stim: pd.DataFrame, phase: str):
             raise ValueError("OLDITEM_CATEGORY disagrees with the allstim scene.")
 
     return matched[["ordinal", "block", "old_img", "new_img", "old_is_target",
-                    "old_side", "correct", "old_ResMem", "new_ResMem",
+                    "old_side", "correct", "answered", "old_ResMem", "new_ResMem",
                     "new_FalseResMem", "old_scene"]]
 
 

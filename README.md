@@ -60,7 +60,7 @@ A power analysis estimates how many participants the neural questions need, from
 | `filter.py` | `raw`: `OLDITEM`/`NEWITEM`, `Cate_OLDITEM`/`Cate_NEWITEM`, `TARGET_LOC`/`Cate_TARGET_LOC`, `Cate_CONDITION`, `OLDITEM_CATEGORY`, `CORRECT`/`Cate_CORRECT`; `stim`; EEG structure and markers | `select_main_trials()` keeps main recognition or categorization trials in presentation order and finds the old image's side and role (target or distractor). `match_stimulus_scores()` joins old and new images to their scores (new images: `recognition_new` or `categorization_new`). `epoch_trial_ordinals()` uses each epoch's BrainVision marker number (`bvmknum`) to find which original trial it is, and drops epochs still marked as artifacts. `match_epochs_to_trials()` keeps one trial per clean epoch and raises an error if the EEG markers and behavioral trials do not line up | One row per clean epoch with `old_side`, `old_is_target`, `correct`, `old_ResMem`, `new_ResMem`, `new_FalseResMem`, `old_scene`, `block` |
 | `data_preprocess.py` | Matched trials and clean epochs | `select_epoch_data()` baselines (−200–0 ms) and extracts µV data. `compute_trial_measures()` computes single-trial r-CDA (contralateral − ipsilateral to the old image; PO7/PO8, 250–450 ms; robustness: PO7/PO8, 250–800 ms, the preprint's full window) and FN400 (Fz/F3/F4, 250–500 ms). `select_correct_trials()` keeps correct trials. `prepare_predictors()` centers and scales ResMem (per 0.1) and FalseResMem (per 0.01), centers block, and sum-codes category (indoor = +0.5) and role (target = +0.5) | Adds `rcda`, `rcda_PO_250_800`, `fn400`, waveforms, `OldResMem`, `NewResMem`, `NewFalseResMem`, `OldCategory`, `Role`, `Block`, `SumResMem` |
 | `statistical_models/LMM.py` | `{subject: dict(set, vmrk, behavior, allstim)}` | `build_dataset()` runs load, filter and preprocess for every participant and phase. `fit_neural_models()` fits LMMs (pymer4/lme4, REML, Satterthwaite df) with random intercepts for subject (plus a ResMem slope), old image and new image | Fitted models, fixed-effect tables (CSV) and trial-level data |
-| `data_visualization.py` | Fitted models, categorization trials and the epoch time axis | `plot_primary_rcda()` and `plot_secondary_fn400()` (see Figures) | PNG figures |
+| `data_visualization.py` | Fitted models, categorization trials and the epoch time axis | `plot_primary_rcda()`, `plot_secondary_fn400()`, `plot_role_interaction()` and `plot_recognition_errors()` (see Figures) | PNG figures |
 
 **Neural models** (categorization trials unless noted; covariates: new-image FalseResMem, old-image category, block):
 
@@ -100,14 +100,18 @@ Both behavioral figures are made in `memorability_analysis_behavioral/data_visua
    - Gray ticks (rug), labeled in the legend: each tick is one raw trial placed at its old image's ResMem score. Ticks along the top ("Correct trials") are correct responses (y = 1), and ticks along the bottom ("Incorrect trials") are incorrect responses (y = 0). Where the top ticks are denser than the bottom ticks, accuracy is higher, which is what the fitted curve summarizes.
    - Text box: effect of ResMem as log-odds (β), odds ratio per 0.1 ResMem, 95% CI and p. The foil FalseResMem and block are held at their means, and scene category is averaged.
 
-Both neural figures are made in `memorability_analysis_neural/data_visualization.py` from the correct categorization trials and the fitted LMMs. ERP amplitude axes are plotted negative up.
+The neural figures are made in `memorability_analysis_neural/data_visualization.py` from the fitted LMMs. Figures 1 and 2 use the correct categorization trials; Figure 4 uses all answered recognition trials. ERP amplitude axes are plotted negative up.
 
 3. **Primary question** (`Fig1_primary_rCDA.png`).
    - Panel A: grand-average r-CDA (PO7/PO8, contralateral − ipsilateral to the old image) over time, separately for trials where the old image was the target or the distractor. Lines are averaged within participant first, then across participants (band: ± SEM across participants). The gray area is the analysis window (250–450 ms).
    - Panel B: model-predicted mean r-CDA across old-image ResMem (line, 95% CI band), with observed means in equal-count ResMem bins (± SEM). Text: ResMem effect (b per 0.1 ResMem, 95% CI, p). Other predictors are held at 0 (their mean, or averaged over category and role).
+   - Panel C (drawn when the `relative_rcda` model was fitted): model-predicted r-CDA across the old-minus-new ResMem difference, with the difference slope and the sum (asymmetry) term. The r-CDA is a difference between the two images, so a positive slope means a more memorable old image, or a less memorable new image, pulls lateralization toward the old image.
 4. **Secondary question** (`Fig2_secondary_FN400.png`).
    - Panel A: grand-average frontal ERP (Fz/F3/F4) for the lowest and highest thirds of old-image ResMem. This split is descriptive only; the model uses continuous ResMem. The gray area is the FN400 window (250–500 ms).
    - Panel B: model-predicted FN400 across old-image ResMem and across new-image ResMem (two lines, 95% CI bands), with observed bin means. Text: old slope, new slope and the old − new contrast (b, 95% CI, p).
+
+5. **Exploratory: role interaction** (`Fig3_role_interaction.png`, `plot_role_interaction()`). Model-predicted r-CDA across old-minus-new ResMem separately for trials where the old image was the target or the distractor, with the simple slope for each role and the interaction. Same-sign slopes in both roles point to goal-independent capture; a slope in one role only points to goal-gated selection.
+6. **Exploratory: recognition errors** (`Fig4_recognition_errors.png`, `plot_recognition_errors()`). Panel A: grand-average r-CDA signed to the chosen image for correct and error recognition trials (a large error r-CDA is expected if familiarity drives orienting, a small one if errors are guesses). Panel B: model-predicted chosen-signed r-CDA across old-image ResMem, for correct and error trials, with simple slopes and the interaction.
 
 The power figure is made in `memorability_analysis_power/power_simulation.py`.
 
@@ -242,6 +246,8 @@ subject_files = {
 cat, rec, times = LMM.build_dataset(subject_files)
 models = LMM.fit_neural_models(cat, rec, random_slope=True, out_dir="Neural_results")
 fig1, _ = ndv.plot_primary_rcda(models, cat, times, filename="Fig1_primary_rCDA.png")
+fig3, _ = ndv.plot_role_interaction(models, cat, filename="Fig3_role_interaction.png")
+fig4, _ = ndv.plot_recognition_errors(models, rec, times, filename="Fig4_recognition_errors.png")
 fig2, _ = ndv.plot_secondary_fn400(models, cat, times, filename="Fig2_secondary_FN400.png")
 ```
 

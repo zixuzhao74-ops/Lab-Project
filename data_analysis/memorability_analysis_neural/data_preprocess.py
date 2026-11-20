@@ -81,6 +81,16 @@ def select_correct_trials(D: pd.DataFrame):
     return D
 
 
+def select_answered_trials(D: pd.DataFrame):
+    """Keep trials with a response (correct or error), dropping timeouts. Used for
+    recognition, where errors are analyzed instead of discarded: ResMem predicts
+    accuracy, so keeping only correct trials would condition on the outcome.
+    """
+    D = D.loc[D["answered"]].copy()
+    print(f"Answered trials kept: {len(D)} ({int(D['correct'].sum())} correct)")
+    return D
+
+
 def prepare_predictors(D: pd.DataFrame):
     """Center and scale the predictors (per 0.1 ResMem, per 0.01 FalseResMem)
     and sum-code the categorical ones (indoor = +0.5, old image target = +0.5).
@@ -99,4 +109,16 @@ def prepare_predictors(D: pd.DataFrame):
     D["Block"] = D["block"] - D["block"].mean()
     # With SumResMem in the model, the OldResMem coefficient = old - new slope
     D["SumResMem"] = D["OldResMem"] + D["NewResMem"]
+    # The r-CDA is a difference between the two items, so model it with the old - new
+    # ResMem difference. DiffResMem slope > 0 means a more memorable old image
+    # (or less memorable new image) pulls the lateralization toward the old image;
+    # a nonzero SumResMem slope means the old and new effects are asymmetric.
+    D["DiffResMem"] = D["OldResMem"] - D["NewResMem"]
+    # Recognition error analysis (2AFC: an error means the new image was chosen).
+    # rcda is signed to the old image; flip it on errors to sign it to the chosen image.
+    D["Correct"] = np.where(D["correct"], 0.5, -0.5)
+    chosen_sign = np.where(D["correct"], 1.0, -1.0)
+    D["rcda_chosen"] = D["rcda"] * chosen_sign
+    for name in RCDA_ROBUSTNESS:
+        D[f"{name}_chosen"] = D[name] * chosen_sign
     return D

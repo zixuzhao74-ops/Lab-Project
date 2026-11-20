@@ -17,7 +17,7 @@ from memorability_analysis_neural.filter import (
     epoch_trial_ordinals, match_epochs_to_trials)
 from memorability_analysis_neural.data_preprocess import (
     RCDA_ROBUSTNESS, select_epoch_data, compute_trial_measures,
-    select_correct_trials, prepare_predictors)
+    select_correct_trials, select_answered_trials, prepare_predictors)
 
 LMM_CONTROL = "optimizer='bobyqa', optCtrl=list(maxfun=2e5)"
 COVARIATES = " + NewFalseResMem + OldCategory + Block"
@@ -47,8 +47,9 @@ def build_dataset(subject_files):
     """Run the pipeline for every participant and stack the results.
 
     subject_files: {subject ID: dict(set=..., vmrk=..., behavior=..., allstim=...)}
-    Returns categorization and recognition trials (correct only, predictors
-    prepared) and the epoch time axis.
+    Returns categorization trials (correct only; accuracy is near ceiling),
+    recognition trials (all answered trials, errors kept, with Correct and the
+    chosen-signed r-CDA) and the epoch time axis.
     """
     frames = {"categorization": [], "recognition": []}
     times = None
@@ -63,7 +64,7 @@ def build_dataset(subject_files):
 
     cat = prepare_predictors(select_correct_trials(
         pd.concat(frames["categorization"], ignore_index=True)))
-    rec = prepare_predictors(select_correct_trials(
+    rec = prepare_predictors(select_answered_trials(
         pd.concat(frames["recognition"], ignore_index=True)))
     print(f"\nParticipants: {cat['subject'].nunique()}, categorization trials: "
           f"{len(cat)}, recognition trials: {len(rec)}")
@@ -103,6 +104,8 @@ def fit_neural_models(cat, rec, random_slope=True, out_dir=None):
     Secondary: fn400 ~ OldResMem + NewResMem + ...        (separate slopes)
                fn400 ~ OldResMem + SumResMem + ...        (OldResMem = old - new)
     Control:   rcda ~ OldResMem + covariates              (recognition)
+    Relative:  rcda ~ DiffResMem + SumResMem + ...        (categorization)
+    Exploratory: DiffResMem x Role; recognition errors (chosen-signed r-CDA)
     """
     if cat["subject"].nunique() < 5:
         print("\nNOTE: fewer than 5 participants. Subject random effects cannot be "
@@ -113,9 +116,6 @@ def fit_neural_models(cat, rec, random_slope=True, out_dir=None):
         "primary_rcda": fit_lmm(
             "rcda ~ OldResMem" + COVARIATES + " + Role" + RE, cat,
             "Primary: r-CDA ~ old ResMem (categorization)"),
-        "control_recognition_rcda": fit_lmm(
-            "rcda ~ OldResMem" + COVARIATES + RE, rec,
-            "Control: r-CDA ~ old ResMem (recognition)"),
         "secondary_fn400_slopes": fit_lmm(
             "fn400 ~ OldResMem + NewResMem" + COVARIATES + " + Role" + RE, cat,
             "Secondary: FN400 old and new slopes"),
@@ -123,6 +123,24 @@ def fit_neural_models(cat, rec, random_slope=True, out_dir=None):
             "fn400 ~ OldResMem + SumResMem" + COVARIATES + " + Role" + RE, cat,
             "Secondary: FN400 old - new contrast (OldResMem term)"),
     }
+    # Recognition keeps errors, so the control model gets Correct as a covariate and
+    # is refit on correct trials only to match the earlier version.
+    models["control_recognition_rcda"] = fit_lmm(
+        "rcda ~ OldResMem + Correct" + COVARIATES + RE, rec,
+        "Control: r-CDA ~ old ResMem (recognition, all answered trials)")
+    models["control_recognition_rcda_correct_only"] = fit_lmm(
+        "rcda ~ OldResMem" + COVARIATES + RE, rec[rec["correct"]],
+        "Control: r-CDA ~ old ResMem (recognition, correct trials only)")
+    models["recognition_chosen_rcda"] = fit_lmm(
+        "rcda_chosen ~ OldResMem * Correct" + COVARIATES + RE, rec,
+        "Exploratory: chosen-signed r-CDA, correct vs error (recognition)")
+    # Relative (old - new) ResMem and its interaction with Role (categorization)
+    models["relative_rcda"] = fit_lmm(
+        "rcda ~ DiffResMem + SumResMem" + COVARIATES + " + Role" + RE, cat,
+        "Relative: r-CDA ~ old-minus-new ResMem (categorization)")
+    models["role_interaction_rcda"] = fit_lmm(
+        "rcda ~ DiffResMem * Role + SumResMem" + COVARIATES + RE, cat,
+        "Exploratory: r-CDA ~ ResMem difference x Role (categorization)")
     for name in RCDA_ROBUSTNESS:
         models[f"robust_{name}"] = fit_lmm(
             f"{name} ~ OldResMem" + COVARIATES + " + Role" + RE, cat,
